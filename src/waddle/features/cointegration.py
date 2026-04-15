@@ -109,3 +109,99 @@ def bear_halt_mask(
     aligned = btc_close.reindex(reference_index, method="ffill")
     mask = aligned > threshold
     return mask.where(aligned.notna(), False).astype(bool)
+
+
+def _ar1_half_life_days(y: np.ndarray) -> float:
+    """Single-window AR(1) half-life of mean reversion, in days.
+
+    Fits spread_t = alpha + rho * spread_{t-1} + eps via OLS on the provided
+    window (assumed hourly). Returns:
+      - half-life in days  = -ln(2) / ln(rho) / 24, if 0 < rho < 1
+      - +inf               if rho >= 1 (no mean reversion / explosive / unit root)
+      - finite negative    if rho <= 0 (oscillatory — rare, returned as-is,
+                             but half_life_mask() treats negatives as tradable)
+      - NaN                if OLS fails or variance is degenerate
+    """
+    if y.size < 10:
+        return float("nan")
+    y_prev = y[:-1]
+    y_next = y[1:]
+    if not np.all(np.isfinite(y_prev)) or not np.all(np.isfinite(y_next)):
+        return float("nan")
+    x_mean = y_prev.mean()
+    y_mean = y_next.mean()
+    dx = y_prev - x_mean
+    dy = y_next - y_mean
+    denom = float((dx * dx).sum())
+    if denom <= 0.0:
+        return float("nan")
+    rho = float((dx * dy).sum() / denom)
+    if not np.isfinite(rho):
+        return float("nan")
+    if rho >= 1.0:
+        return float("inf")
+    if rho <= 0.0:
+        # oscillatory regime — log of a negative is undefined, but the window
+        # is clearly reverting fast. Return a conservative-but-tradable small
+        # positive value so the mask lets it through.
+        return 0.0
+    hl_hours = -np.log(2.0) / np.log(rho)
+    return float(hl_hours / 24.0)
+
+
+def rolling_half_life(
+    spread: pd.Series,
+    window_bars: int = 720,
+    step_bars: int = 24,
+) -> pd.Series:
+    """Rolling AR(1) half-life of mean reversion for the spread series, in days.
+
+    At each refresh point (every `step_bars`), fit AR(1) over the trailing
+    `window_bars`:
+        spread_t = alpha + rho * spread_{t-1} + eps_t
+
+    Half-life in hours = -ln(2) / ln(rho) if 0 < rho < 1. Converted to days.
+
+    Aligned to the strategy horizon: default window_bars = 720 = 30 days,
+    step_bars = 24 = recompute once per day. Much shorter than the 90-day ADF
+    test — deliberately, because the strategy's holding horizon is 48h and the
+    filter signal should live on a compatible time scale.
+
+    Returns a series indexed like `spread`, forward-filled between refreshes.
+    - Before first complete window: NaN (warmup)
+    - rho >= 1 (explosive / unit root): +inf (treat as "won't revert")
+    - rho <= 0 (oscillatory): 0.0 (tradable — fast reversion)
+    - OLS numerical failure: NaN
+    """
+    if not isinstance(spread, pd.Series):
+        raise TypeError("spread must be a pandas Series")
+    arr = spread.to_numpy(dtype=float)
+    n = arr.size
+
+    hl = np.full(n, np.nan, dtype=float)
+    for end in range(window_bars, n + 1, step_bars):
+        start = end - window_bars
+        window = arr[start:end]
+        if not np.all(np.isfinite(window)):
+            continue
+        hl[end - 1] = _ar1_half_life_days(window)
+
+    series = pd.Series(hl, index=spread.index, name="half_life_days")
+    return series.ffill()
+
+
+def half_life_mask(
+    half_life_series: pd.Series,
+    threshold_days: float = 30.0,
+) -> pd.Series:
+    """Boolean mask: True = half-life is short enough to trade.
+
+    True iff 0 <= half_life_series < threshold_days.
+    NaN or +inf -> False (conservative: no trading without a valid, short
+    half-life). Negative values (from the oscillatory edge case) also become
+    False in the strict form, but rolling_half_life() clamps those to 0.0
+    already, so in practice the only non-tradable outputs are NaN and +inf.
+    """
+    valid = half_life_series.notna() & np.isfinite(half_life_series)
+    mask = valid & (half_life_series >= 0) & (half_life_series < threshold_days)
+    return mask.astype(bool)
