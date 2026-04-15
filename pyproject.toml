@@ -10,6 +10,7 @@ requires-python = ">=3.13"
 dependencies = [
     "ccxt>=4.5.48",
     "pandas>=3.0.2",
+    "statsmodels>=0.14.6",
 ]
 
 [project.scripts]

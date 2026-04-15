@@ -41,12 +41,25 @@ def run_pairs_reversion(
     stop_loss_z: float | None = None,
     fee_per_side: float = 0.0,
     slippage_per_side: float = 0.0,
+    cointegration_mask: pd.Series | None = None,
+    regime_mask: pd.Series | None = None,
 ) -> list[Trade]:
     """Run the pairs mean-reversion state machine.
 
     Fees and slippage model: a dollar-neutral pair trade opens 2 legs and closes
     2 legs = 4 sides. PnL is debited by `4 * (fee_per_side + slippage_per_side)`
     per trade. Both are expressed as fractions (0.001 = 0.1%).
+
+    Entry gating (optional):
+        `cointegration_mask` and `regime_mask` are boolean Series aligned to
+        the zscore index. When provided, new entries are only allowed at
+        timestamps where the mask is True. Existing positions are never forced
+        out by a mask flip — they exit normally via mean reversion, stop-time,
+        or stop-loss. This matches ADR-007: do not close positions when a
+        filter deactivates, only refuse new ones.
+
+        Missing timestamps or NaN mask values are treated as False
+        (conservative default: no new trade without a valid filter reading).
     """
     cost_per_trade = 4 * (fee_per_side + slippage_per_side)
     trades: list[Trade] = []
@@ -54,18 +67,28 @@ def run_pairs_reversion(
     entry_info: dict | None = None
     bars_in_position = 0
 
+    def _entry_allowed(ts: pd.Timestamp) -> bool:
+        if cointegration_mask is not None:
+            if not bool(cointegration_mask.get(ts, False)):
+                return False
+        if regime_mask is not None:
+            if not bool(regime_mask.get(ts, False)):
+                return False
+        return True
+
     for ts, z in zscore.items():
         if pd.isna(z):
             continue
         s = spread.loc[ts]
 
         if position is None:
-            if z >= entry_z:
-                position = "SHORT_SPREAD"
-                entry_info = {"ts": ts, "spread": s, "z": z}
-                bars_in_position = 0
-            elif z <= -entry_z:
-                position = "LONG_SPREAD"
+            if z >= entry_z or z <= -entry_z:
+                if not _entry_allowed(ts):
+                    continue
+                if z >= entry_z:
+                    position = "SHORT_SPREAD"
+                else:
+                    position = "LONG_SPREAD"
                 entry_info = {"ts": ts, "spread": s, "z": z}
                 bars_in_position = 0
             continue

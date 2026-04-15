@@ -1,4 +1,9 @@
-"""Backfill 6 months of hourly BTC/USDT and ETH/USDT into the local SQLite db."""
+"""Backfill 18 months of hourly majors into the local SQLite db.
+
+Extended from 6 to 18 months and to 5 symbols after ADR-006 showed that 6
+months of BTC/ETH gave no statistically robust signal. The additional symbols
+enable testing alt/ETH and L1/L1 pairs alongside the BTC/ETH baseline.
+"""
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -6,8 +11,8 @@ from datetime import datetime, timedelta, timezone
 from waddle.data.fetcher import fetch_ohlcv_range
 from waddle.data.storage import DEFAULT_DB, save_ohlcv
 
-LOOKBACK_DAYS = 180
-SYMBOLS = ("BTC/USDT", "ETH/USDT")
+LOOKBACK_DAYS = 540
+SYMBOLS = ("BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "AVAX/USDT")
 TIMEFRAME = "1h"
 
 
