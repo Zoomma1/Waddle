@@ -1,0 +1,11 @@
+{
+  "entry_z": 2.5,
+  "exit_z": 0.5,
+  "max_holding_bars": 48,
+  "zscore_window": 168,
+  "updated_at": "2026-04-15T00:00:00+00:00",
+  "selected_by": "fleet_fixed",
+  "train_window_days": 90,
+  "train_calmar": 0.0,
+  "train_sharpe": 0.0
+}
