@@ -11,3 +11,4 @@ wheels/
 
 # Local SQLite db — regenerable via scripts/backfill.py
 data/*.db
+logs/
