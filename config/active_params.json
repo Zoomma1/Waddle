@@ -1,0 +1,11 @@
+{
+  "entry_z": 2.0,
+  "exit_z": 0.5,
+  "max_holding_bars": 48,
+  "zscore_window": 168,
+  "updated_at": "2026-04-16T00:27:17+00:00",
+  "selected_by": "retune.py",
+  "train_window_days": 90,
+  "train_calmar": 3.854121380541451,
+  "train_sharpe": 4.6396748018399485
+}

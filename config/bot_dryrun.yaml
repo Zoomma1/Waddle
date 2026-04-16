@@ -1,0 +1,26 @@
+pair:
+  symbol_a: "SOL/USDT:USDT"
+  symbol_b: "AVAX/USDT:USDT"
+  reference_btc: "BTC/USDT:USDT"
+
+exchange:
+  name: "bybit"
+  type: "swap"
+  testnet: false
+
+fees:
+  fee_per_side: 0.0002
+  slippage_per_side: 0.0002
+
+risk:
+  total_notional_usd: 1000.0
+  leg_notional_usd: 500.0
+  bear_halt_btc_threshold: 60000.0
+
+engine:
+  polling_interval_seconds: 10
+  lookback_bars: 200
+
+mode: "paper"
+
+state_db: "data/waddle_bot_dryrun.db"
