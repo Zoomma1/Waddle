@@ -99,3 +99,9 @@ Moving to live when: Sharpe > 1.0 net of fees over 3-6 months of paper, includin
 ## Stack
 
 Python 3.13 · uv · ccxt · pandas · SQLite · Bybit perpetuals
+
+---
+
+## License
+
+[MIT + Commons Clause](LICENSE) — free to use, fork, and modify. Commercial use (selling, hosting as a service, paid consulting based on this code) is not allowed.
