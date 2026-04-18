@@ -12,3 +12,7 @@ wheels/
 # Local SQLite db — regenerable via scripts/backfill.py
 data/*.db
 logs/
+
+# Claude Code — local config, not for public repo
+.claude/
+CLAUDE.md
