@@ -114,8 +114,6 @@ def tick(
     bars_b = exchange.fetch_recent_bars(
         config.pair.symbol_b, limit=config.engine.lookback_bars
     )
-    bars_btc = exchange.fetch_recent_bars(config.pair.reference_btc, limit=1)
-
     aligned = bars_a[["close"]].join(
         bars_b[["close"]], how="inner", lsuffix="_a", rsuffix="_b"
     )
@@ -143,7 +141,9 @@ def tick(
         )
         return
 
-    if bars_btc is None or len(bars_btc) == 0:
+    try:
+        btc_close = exchange.fetch_latest_price(config.pair.reference_btc)
+    except Exception:
         state.log_event(
             now,
             "WARNING",
@@ -151,7 +151,6 @@ def tick(
             {"reason": "no_btc_reference_bar"},
         )
         return
-    btc_close = float(bars_btc["close"].iloc[-1])
     bear_halt_ok = btc_close >= config.risk.bear_halt_btc_threshold
 
     position = state.get_open_position()
