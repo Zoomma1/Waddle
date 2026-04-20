@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "ccxt>=4.5.48",
+    "matplotlib>=3.10.8",
     "pandas>=3.0.2",
     "pyyaml>=6.0.3",
     "statsmodels>=0.14.6",
