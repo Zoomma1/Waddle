@@ -26,6 +26,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Protocol
 
+import ccxt
 import pandas as pd
 
 from waddle.bot.config import ActiveParams, BotConfig, load_active_params
@@ -79,13 +80,26 @@ def run_engine(
         while True:
             try:
                 tick(state, config, exchange, clock, active_params_path)
+            except ccxt.ExchangeError as e:
+                try:
+                    state.log_event(
+                        clock.now(),
+                        "WARNING",
+                        "TICK_FAILED",
+                        {"error": str(e), "type": type(e).__name__},
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
             except Exception as e:  # noqa: BLE001 — we deliberately catch everything
-                state.log_event(
-                    clock.now(),
-                    "ERROR",
-                    "TICK_FAILED",
-                    {"error": str(e), "type": type(e).__name__},
-                )
+                try:
+                    state.log_event(
+                        clock.now(),
+                        "ERROR",
+                        "TICK_FAILED",
+                        {"error": str(e), "type": type(e).__name__},
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
             clock.sleep(config.engine.polling_interval_seconds)
     except KeyboardInterrupt:
         state.log_event(
