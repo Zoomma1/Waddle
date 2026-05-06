@@ -16,3 +16,6 @@ logs/
 # Claude Code — local config, not for public repo
 .claude/
 CLAUDE.md
+
+# Environment variables — local config, not for public repo
+.env

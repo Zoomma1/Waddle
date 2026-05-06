@@ -1,0 +1,11 @@
+{
+  "entry_z": 1.0,
+  "exit_z": 0.2,
+  "max_holding_bars": 48,
+  "zscore_window": 168,
+  "updated_at": "2026-04-20T11:59:51+00:00",
+  "selected_by": "smoke_test",
+  "train_window_days": 90,
+  "train_calmar": 1.0,
+  "train_sharpe": 1.0
+}
