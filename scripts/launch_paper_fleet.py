@@ -31,6 +31,12 @@ def main() -> None:
         default=None,
         help="Comma-separated combo IDs to run (default: all). Example: --combos 1,3",
     )
+    parser.add_argument(
+        "--stagger-seconds",
+        type=float,
+        default=15.0,
+        help="Delay between launching successive bots, to desync their tick phase and reduce Bybit per-IP rate-limit bursts (default: 15s).",
+    )
     args = parser.parse_args()
 
     if args.combos:
@@ -52,7 +58,10 @@ def main() -> None:
 
     processes: dict[int, tuple[subprocess.Popen, Path]] = {}
 
-    for combo_id in selected:
+    for idx, combo_id in enumerate(selected):
+        if idx > 0 and args.stagger_seconds > 0:
+            print(f"  ... staggering {args.stagger_seconds:.0f}s before next bot")
+            time.sleep(args.stagger_seconds)
         combo = FLEET_COMBOS[combo_id]
         log_path = Path(combo["log"])
 

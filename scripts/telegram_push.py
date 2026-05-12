@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import urllib.request
 from pathlib import Path
 
@@ -33,6 +34,11 @@ FLEET_COMBOS = {
 
 ALERT_DRAWDOWN_PCT = 5.0
 ALERT_INACTIVE_H = 2.0
+# A bot averages ~1-3 TICK_FAILED/day on healthy operation (RateLimit + Timeout
+# background noise from Bybit). We only alert on a true cluster, defined as
+# COUNT fails within a short window — a sustained outage will keep crossing it.
+ALERT_TICK_FAIL_WINDOW_H = 1.0
+ALERT_TICK_FAIL_COUNT = 5
 
 
 def _fmt_pnl(v: float) -> str:
@@ -78,21 +84,35 @@ def _combo_block(combo_id: int, combo: dict) -> tuple[str, list[str]]:
     if dd_pct < -ALERT_DRAWDOWN_PCT:
         alerts.append(f"⚠️ {label}: drawdown {dd_pct:.1f}%")
 
-    # Inactivity alert
-    events = store.recent_events(limit=1)
-    if events:
-        last_event_ts = events[0]["ts"]
-        if last_event_ts.tzinfo is None:
-            last_event_ts = last_event_ts.tz_localize("UTC")
-        inactive_h = (pd.Timestamp.now(tz="UTC") - last_event_ts).total_seconds() / 3600
+    # Inactivity alert -- based on the true heartbeat (equity snapshots, 1/min)
+    # rather than bot_events, because INFO events (ENTRY/EXIT) are sparse and
+    # a healthy bot can go 8h without writing one.
+    now = pd.Timestamp.now(tz="UTC")
+    if eq is not None:
+        last_eq_ts = eq.ts if eq.ts.tzinfo is not None else eq.ts.tz_localize("UTC")
+        inactive_h = (now - last_eq_ts).total_seconds() / 3600
         if inactive_h > ALERT_INACTIVE_H:
-            alerts.append(f"🔇 {label}: inactive {inactive_h:.1f}h")
+            alerts.append(f"🔇 {label}: no equity snapshot for {inactive_h:.1f}h")
 
-    # Failed tick alert
-    recent_events = store.recent_events(limit=20)
-    tick_fails = sum(1 for e in recent_events if e["event_type"] == "TICK_FAILED")
-    if tick_fails > 0:
-        alerts.append(f"💥 {label}: {tick_fails} TICK_FAILED (last 20 events)")
+    # Failed tick alert -- absolute count over a temporal window, not "last N
+    # events". A single fail/h is normal background noise (Bybit RateLimit +
+    # Timeout); we only surface a true cluster.
+    window_ms = int(ALERT_TICK_FAIL_WINDOW_H * 3600 * 1000)
+    cutoff_ms = int(now.timestamp() * 1000) - window_ms
+    con = sqlite3.connect(path)
+    try:
+        fails_window = con.execute(
+            "SELECT COUNT(*) FROM bot_events "
+            "WHERE event_type = 'TICK_FAILED' AND ts > ?",
+            (cutoff_ms,),
+        ).fetchone()[0]
+    finally:
+        con.close()
+
+    if fails_window >= ALERT_TICK_FAIL_COUNT:
+        alerts.append(
+            f"💥 {label}: {fails_window} TICK_FAILED in last {ALERT_TICK_FAIL_WINDOW_H:.0f}h"
+        )
 
     pnl_str = _fmt_pnl(total_pnl)
     line = f"{'✅' if total_pnl >= 0 else '🔴'} {label}\n   {pos_str} | PnL {pnl_str} | {n_trades} trades"
@@ -122,7 +142,6 @@ def send_telegram(message: str, bot_token: str, chat_id: str) -> None:
     payload = json.dumps({
         "chat_id": chat_id,
         "text": message,
-        "parse_mode": "Markdown",
     }).encode()
     req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=10) as resp:

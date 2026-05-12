@@ -28,7 +28,10 @@ linear perpetual on Bybit). The `:USDT` settlement suffix is required.
 from __future__ import annotations
 
 import logging
+import random
+import time
 from dataclasses import dataclass
+from typing import Callable, TypeVar
 
 import ccxt
 import pandas as pd
@@ -40,6 +43,47 @@ _LOGGER = logging.getLogger(__name__)
 
 _LONG_SPREAD = "LONG_SPREAD"
 _SHORT_SPREAD = "SHORT_SPREAD"
+
+# Retry policy for transient network/rate-limit errors. NetworkError covers
+# RateLimitExceeded, DDoSProtection, ExchangeNotAvailable, RequestTimeout —
+# all the chronic Bybit failure modes we want to absorb without crashing a tick.
+_RETRY_BASE_DELAY_S = 2.0
+_RETRY_MAX_ATTEMPTS = 3
+_RETRY_JITTER_FRAC = 0.25  # ±25% jitter on the delay
+
+
+_T = TypeVar("_T")
+
+
+def _retry_transient(call: Callable[[], _T], op_label: str) -> _T:
+    """Run `call`, retrying on ccxt.NetworkError with exponential backoff + jitter.
+
+    Final attempt re-raises so the engine sees a real failure and logs TICK_FAILED.
+    Intermediate retries are logged at WARNING so we can audit how often the
+    backoff is firing.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(1, _RETRY_MAX_ATTEMPTS + 1):
+        try:
+            return call()
+        except ccxt.NetworkError as exc:
+            last_exc = exc
+            if attempt == _RETRY_MAX_ATTEMPTS:
+                break
+            delay = _RETRY_BASE_DELAY_S * (2 ** (attempt - 1))
+            delay *= 1 + random.uniform(-_RETRY_JITTER_FRAC, _RETRY_JITTER_FRAC)
+            _LOGGER.warning(
+                "%s failed (attempt %d/%d, %s): %s — retrying in %.2fs",
+                op_label,
+                attempt,
+                _RETRY_MAX_ATTEMPTS,
+                type(exc).__name__,
+                exc,
+                delay,
+            )
+            time.sleep(delay)
+    assert last_exc is not None
+    raise last_exc
 
 
 @dataclass
@@ -100,7 +144,10 @@ class BybitAdapter:
         whenever the only bar is in-progress — which happens most of the time
         on short polling intervals.
         """
-        raw = self._client.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit + 2)
+        raw = _retry_transient(
+            lambda: self._client.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit + 2),
+            op_label=f"fetch_ohlcv({symbol},{timeframe})",
+        )
         if not raw:
             return pd.DataFrame(
                 columns=["open", "high", "low", "close", "volume"],
@@ -129,7 +176,10 @@ class BybitAdapter:
         quoted, else falls back to `last`. Raises if ccxt returns no usable
         price (the engine will catch and skip the tick).
         """
-        ticker = self._client.fetch_ticker(symbol)
+        ticker = _retry_transient(
+            lambda: self._client.fetch_ticker(symbol),
+            op_label=f"fetch_ticker({symbol})",
+        )
         bid = ticker.get("bid")
         ask = ticker.get("ask")
         if bid is not None and ask is not None and bid > 0 and ask > 0:

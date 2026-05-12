@@ -4,12 +4,13 @@ Reads a bot state DB and prints a human-readable status report:
 current position, recent trades, equity summary, recent events, uptime.
 
 Usage:
-    uv run scripts/report_bot_status.py                          # defaults to data/waddle_bot.db
+    uv run scripts/report_bot_status.py                          # reports all fleet_combo*.db
     uv run scripts/report_bot_status.py --db data/fleet_combo1.db
 """
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 from pathlib import Path
 
@@ -132,11 +133,19 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Report Waddle bot status")
     parser.add_argument(
         "--db",
-        default="data/waddle_bot.db",
-        help="Path to bot state database (default: data/waddle_bot.db)",
+        default=None,
+        help="Path to bot state database (default: all data/fleet_combo*.db)",
     )
     args = parser.parse_args()
-    report(args.db)
+    if args.db:
+        report(args.db)
+    else:
+        dbs = sorted(glob.glob("data/fleet_combo*.db"))
+        if not dbs:
+            print("No fleet_combo*.db found — use --db to specify a database.")
+            return
+        for db in dbs:
+            report(db)
 
 
 if __name__ == "__main__":
