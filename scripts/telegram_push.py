@@ -25,11 +25,21 @@ import pandas as pd
 
 from waddle.bot.state import StateStore
 
+def _retuned_label() -> str:
+    # Params changent à chaque retune.py : on les relit plutôt que de les figer.
+    try:
+        p = json.loads(Path("config/active_params.json").read_text())
+        return f"R entry={p['entry_z']}/exit={p['exit_z']}"
+    except (OSError, KeyError, ValueError):
+        return "R retuned"
+
+
 FLEET_COMBOS = {
     1: {"label": "C1 entry=2.0/exit=0.5", "db": "data/fleet_combo1.db"},
     2: {"label": "C2 entry=2.2/exit=1.0", "db": "data/fleet_combo2.db"},
     3: {"label": "C3 entry=2.5/exit=0.5", "db": "data/fleet_combo3.db"},
     4: {"label": "C4 entry=2.7/exit=1.0", "db": "data/fleet_combo4.db"},
+    5: {"label": _retuned_label(), "db": "data/waddle_bot.db"},
 }
 
 ALERT_DRAWDOWN_PCT = 5.0
