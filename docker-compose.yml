@@ -1,0 +1,17 @@
+services:
+  waddle-fleet:
+    build: .
+    image: waddle-fleet
+    container_name: waddle-fleet
+    stop_grace_period: 30s
+    restart: unless-stopped
+    network_mode: host
+    env_file:
+      - .env
+    environment:
+      - PUSH_INTERVAL_H=6
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
