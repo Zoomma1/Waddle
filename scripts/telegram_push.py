@@ -79,7 +79,7 @@ def _combo_block(combo_id: int, combo: dict) -> tuple[str, list[str]]:
 
     # Drawdown alert (simple: total_pnl < -threshold * nav_initial)
     nav = eq.nav if eq else 100.0
-    nav_initial = 100.0  # paper trading starts at $100 notional
+    nav_initial = 1000.0  # = risk.total_notional_usd des bot*.yaml (engine.py:425)
     dd_pct = (total_pnl / nav_initial) * 100
     if dd_pct < -ALERT_DRAWDOWN_PCT:
         alerts.append(f"⚠️ {label}: drawdown {dd_pct:.1f}%")
