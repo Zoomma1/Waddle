@@ -15,3 +15,20 @@ services:
       - ./config:/app/config
       - ./data:/app/data
       - ./logs:/app/logs
+
+  # Dashboard lecture seule, joignable uniquement sur l'IP Tailscale du N100 (DASH_BIND ci-dessous, prime sur .env).
+  waddle-dashboard:
+    image: waddle-fleet
+    container_name: waddle-dashboard
+    restart: unless-stopped
+    network_mode: host
+    entrypoint: ["uv", "run", "scripts/dashboard.py"]
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DASH_BIND=100.75.56.107
+    volumes:
+      - ./config:/app/config:ro
+      - ./scripts:/app/scripts:ro
+      - ./data:/app/data
