@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waddle fleet</title>
+<link rel="stylesheet" href="https://unpkg.com/uplot@1.6.31/dist/uPlot.min.css" integrity="sha384-IfV0B7MIOYuO95kO9G5ySKPz/85zqFNOAs8iy4tkK5zd9izhJAB8b7lHrwYqqmYE" crossorigin="anonymous">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #111110; --surface: #1a1a19; --surface-2: #232321; --border: #2e2e2b;
+    --text: #f0efec; --text-2: #c3c2b7; --muted: #8b8a82;
+    --accent: #3987e5; --good: #0ca30c; --bad: #ec835a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 24px 20px 40px; }
+  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px; }
+  header h1 { font-size: 20px; font-weight: 650; margin: 0; letter-spacing: -.01em; }
+  header .sub { color: var(--muted); }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
+
+  .toolbar { display: flex; flex-wrap: wrap; gap: 14px 18px; padding: 14px 16px; margin-bottom: 14px; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 5px; position: relative; }
+  .field > .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .ctl, select, input { height: 36px; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 9px; padding: 0 12px; font: inherit; outline: none; }
+  select { padding-right: 8px; cursor: pointer; }
+  .ctl:hover, select:hover, input:hover { border-color: #444440; }
+  .ctl:focus-visible, select:focus-visible, input:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px #3987e544; }
+  .datebox { display: flex; gap: 6px; align-items: center; }
+  .iconbtn { width: 36px; padding: 0; cursor: pointer; display: grid; place-items: center; }
+  .ghost { cursor: pointer; color: var(--text-2); }
+
+  .ddbtn { min-width: 190px; display: flex; justify-content: space-between; align-items: center; gap: 10px; cursor: pointer; text-align: left; }
+  .ddbtn svg { width: 12px; height: 12px; flex: none; opacity: .7; }
+  .ddpanel { position: absolute; top: calc(100% + 6px); left: 0; z-index: 20; min-width: 100%; background: var(--surface-2); border: 1px solid var(--border); border-radius: 11px; padding: 6px; box-shadow: 0 12px 32px #0009; }
+  .ddpanel[hidden] { display: none; }
+  .opt { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 7px; cursor: pointer; white-space: nowrap; }
+  .opt:hover { background: #ffffff0d; }
+  .opt input { height: auto; width: 15px; accent-color: var(--accent); margin: 0; padding: 0; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .opt small { color: var(--muted); margin-left: auto; padding-left: 14px; }
+
+  #msg { color: var(--bad); min-height: 20px; margin: 0 2px 8px; font-size: 13px; }
+  .chartcard { padding: 16px 16px 10px; }
+  .charthead { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+  .charthead .t { font-weight: 600; }
+  .charthead .when { color: var(--muted); font-variant-numeric: tabular-nums; }
+  #chart { width: 100%; min-height: 420px; }
+  .empty { height: 420px; display: grid; place-items: center; color: var(--muted); }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-top: 12px; }
+  .stat { padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+  .stat .head { display: flex; align-items: center; gap: 8px; color: var(--text-2); }
+  .stat .head small { color: var(--muted); margin-left: auto; }
+  .stat .val { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+  .stat .val.pos::before { content: "▲ "; font-size: 11px; color: var(--good); }
+  .stat .val.neg::before { content: "▼ "; font-size: 11px; color: var(--bad); }
+
+  .u-legend { display: none; }
+  .u-cursor-x, .u-cursor-y { border-color: #8b8a82 !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1>🦆 Waddle fleet</h1><span class="sub">PnL cumulé par bot · paper trading</span></header>
+
+  <div class="card toolbar">
+    <div class="field"><span class="lbl">Période</span>
+      <select id="period"></select>
+    </div>
+    <div class="field"><span class="lbl">Date</span>
+      <div class="datebox">
+        <button class="ctl iconbtn" id="prev" title="Précédent" aria-label="Précédent">‹</button>
+        <span id="datein" class="datebox"></span>
+        <button class="ctl iconbtn" id="next" title="Suivant" aria-label="Suivant">›</button>
+        <button class="ctl ghost" id="now">Maintenant</button>
+      </div>
+    </div>
+    <div class="field" id="ddStrat"></div>
+    <div class="field" id="ddBots"></div>
+  </div>
+
+  <div id="msg"></div>
+  <div class="card chartcard">
+    <div class="charthead"><span class="t" id="rangeLabel"></span><span class="when" id="when"></span></div>
+    <div id="chart"></div>
+  </div>
+  <div class="cards" id="cards"></div>
+</div>
+
+<script src="https://unpkg.com/uplot@1.6.31/dist/uPlot.iife.min.js" integrity="sha384-XMP23k7YSCFr13Xrkxh4IO0v1W+8fB6AP+3Vycxphp2Z0V2vocAZHyuGaFCysrtM" crossorigin="anonymous"></script>
+<script>
+const PERIODS = { h: "Heure", j: "Jour", s: "Semaine", m: "Mois", a: "Année" };
+// Granularité par période pour garder ~300 points max.
+const BUCKET_MIN = { h: 1, j: 5, s: 30, m: 120, a: 1440 };
+// Une couleur par bot (ordre catégoriel dark validé), jamais recyclée selon la sélection.
+const BOT_COLOR = { C1: "#3987e5", C2: "#d95926", C3: "#199e70", C4: "#c98500", R: "#d55181" };
+const FALLBACK = ["#9085e9", "#e66767", "#008300"];
+const pad = n => String(n).padStart(2, "0");
+const colorOf = (id, i) => BOT_COLOR[id] || FALLBACK[i % FALLBACK.length];
+const fr = (o) => new Intl.DateTimeFormat("fr-FR", o);
+const fmtPnl = v => v == null ? "—" : (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2) + " $";
+
+let state = { period: "j", anchor: new Date(), bots: new Set() };
+let meta = [], plot = null, cur = { x: [], shown: [], cols: [] }, reqSeq = 0;
+
+// ---- calendrier (heure locale) ----
+function floorTo(period, d) {
+  const x = new Date(d);
+  if (period === "h") x.setMinutes(0, 0, 0);
+  else { x.setHours(0, 0, 0, 0);
+    if (period === "s") x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+    if (period === "m") x.setDate(1);
+    if (period === "a") x.setMonth(0, 1);
+  }
+  return x;
+}
+function addPeriod(period, d, n) {
+  const x = new Date(d);
+  if (period === "h") x.setHours(x.getHours() + n);
+  if (period === "j") x.setDate(x.getDate() + n);
+  if (period === "s") x.setDate(x.getDate() + 7 * n);
+  if (period === "m") x.setMonth(x.getMonth() + n);
+  if (period === "a") x.setFullYear(x.getFullYear() + n);
+  return x;
+}
+const isoDate = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+function isoWeek(d) {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
+  const w = Math.ceil(((t - Date.UTC(t.getUTCFullYear(), 0, 1)) / 864e5 + 1) / 7);
+  return `${t.getUTCFullYear()}-W${pad(w)}`;
+}
+function weekToDate(v) {
+  const [y, w] = v.split("-W").map(Number);
+  return addPeriod("s", floorTo("s", new Date(y, 0, 4)), w - 1);
+}
+function rangeLabel(start, end) {
+  const p = state.period;
+  if (p === "h") return fr({ weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(start) + " → " + fr({ hour: "2-digit", minute: "2-digit" }).format(end);
+  if (p === "j") return fr({ dateStyle: "full" }).format(start);
+  if (p === "s") return "Semaine du " + fr({ day: "numeric", month: "long" }).format(start) + " au " + fr({ day: "numeric", month: "long", year: "numeric" }).format(new Date(end - 1));
+  if (p === "m") return fr({ month: "long", year: "numeric" }).format(start);
+  return String(start.getFullYear());
+}
+
+// ---- dropdown multiselect ----
+function Dropdown(root, title) {
+  root.innerHTML = `<span class="lbl">${title}</span>
+    <button class="ctl ddbtn" type="button"><span class="val"></span>
+      <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 4.5l4 4 4-4"/></svg></button>
+    <div class="ddpanel" hidden></div>`;
+  const btn = root.querySelector(".ddbtn"), panel = root.querySelector(".ddpanel"), val = root.querySelector(".val");
+  btn.onclick = () => {
+    const open = panel.hidden;
+    document.querySelectorAll(".ddpanel").forEach(p => p.hidden = true);
+    panel.hidden = !open;
+  };
+  return {
+    render(items, summary, onToggle) {
+      val.textContent = summary;
+      panel.replaceChildren(...items.map(it => {
+        const row = document.createElement("label"); row.className = "opt";
+        const cb = Object.assign(document.createElement("input"), { type: "checkbox", checked: it.checked, indeterminate: !!it.partial });
+        cb.onchange = () => onToggle(it.key);
+        row.append(cb);
+        if (it.color) { const d = document.createElement("span"); d.className = "dot"; d.style.background = it.color; row.append(d); }
+        row.append(it.label);
+        if (it.hint) { const s = document.createElement("small"); s.textContent = it.hint; row.append(s); }
+        return row;
+      }));
+    },
+  };
+}
+document.addEventListener("click", e => document.querySelectorAll(".ddpanel").forEach(p => { if (!p.parentElement.contains(e.target)) p.hidden = true; }));
+
+let ddStrat, ddBots;
+function summarize(n, total, names) {
+  if (n === total) return `Tous (${total})`;
+  if (n === 0) return "Aucun";
+  return n <= 2 ? names.join(", ") : `${n} sélectionnés`;
+}
+function renderFilters() {
+  const bots = meta.filter(m => state.bots.has(m.id));
+  ddBots.render(
+    meta.map(m => ({ key: m.id, label: m.label, color: colorOf(m.id), checked: state.bots.has(m.id), hint: m.strategy })),
+    summarize(bots.length, meta.length, bots.map(b => b.id)),
+    id => { state.bots.has(id) ? state.bots.delete(id) : state.bots.add(id); renderFilters(); refresh(); });
+  // L'état d'une stratégie est dérivé de ses bots : plus de double source de vérité.
+  const strats = [...new Set(meta.map(m => m.strategy))].map(s => {
+    const mine = meta.filter(m => m.strategy === s), n = mine.filter(m => state.bots.has(m.id)).length;
+    return { key: s, label: s, checked: n === mine.length, partial: n > 0 && n < mine.length, hint: `${mine.length} bot${mine.length > 1 ? "s" : ""}`, on: n > 0 };
+  });
+  ddStrat.render(strats, summarize(strats.filter(s => s.on).length, strats.length, strats.filter(s => s.on).map(s => s.key)),
+    s => {
+      const mine = meta.filter(m => m.strategy === s), all = mine.every(m => state.bots.has(m.id));
+      mine.forEach(m => all ? state.bots.delete(m.id) : state.bots.add(m.id));
+      renderFilters(); refresh();
+    });
+}
+
+// Le sélecteur de date s'adapte à la période.
+function renderDateInput() {
+  const p = state.period, a = state.anchor, box = document.getElementById("datein");
+  const mk = (type, val, onchange, extra = {}) => {
+    const i = Object.assign(document.createElement("input"), { type, value: val, ...extra });
+    i.onchange = () => { const d = onchange(i.value); if (d && !isNaN(d)) { state.anchor = d; renderDateInput(); refresh(); } };
+    return i;
+  };
+  box.replaceChildren();
+  if (p === "h") box.append(
+    mk("date", isoDate(a), v => { const d = new Date(a); const [y, m, dd] = v.split("-").map(Number); d.setFullYear(y, m - 1, dd); return d; }),
+    mk("number", a.getHours(), v => { const d = new Date(a); d.setHours(+v); return d; }, { min: 0, max: 23, style: "width:64px" }));
+  if (p === "j") box.append(mk("date", isoDate(a), v => new Date(v + "T00:00")));
+  if (p === "s") box.append(mk("week", isoWeek(a), weekToDate));
+  if (p === "m") box.append(mk("month", isoDate(a).slice(0, 7), v => new Date(v + "-01T00:00")));
+  if (p === "a") box.append(mk("number", a.getFullYear(), v => new Date(+v, 0, 1), { min: 2020, max: 2100, style: "width:90px" }));
+}
+
+// ---- données + rendu ----
+async function refresh() {
+  const msg = document.getElementById("msg");
+  const start = floorTo(state.period, state.anchor), end = addPeriod(state.period, start, 1);
+  document.getElementById("rangeLabel").textContent = rangeLabel(start, end);
+  const bots = meta.filter(m => state.bots.has(m.id));
+  if (!bots.length) { msg.textContent = ""; return draw({ x: [], shown: [], cols: [] }, start, end, "Aucun bot sélectionné."); }
+  const q = new URLSearchParams({ bots: bots.map(b => b.id).join(","), start: +start, end: +end, bucket: BUCKET_MIN[state.period] * 60000 });
+  const my = ++reqSeq;
+  let data;
+  try { data = await (await fetch("/api/series?" + q)).json(); }
+  catch { if (my === reqSeq) msg.textContent = "Serveur injoignable."; return; }
+  if (my !== reqSeq) return; // une requête plus récente est partie : on jette cette réponse
+  const errs = Object.entries(data.errors || {}).map(([k, v]) => `${k}: ${v}`);
+  msg.textContent = errs.length ? "Erreur DB — " + errs.join(" | ") : "";
+  const shown = bots.filter(b => data.series[b.id]);
+  draw({ x: data.x, shown, cols: shown.map(b => data.series[b.id]) }, start, end, data.x.length ? "" : "Aucune donnée sur cette fenêtre.");
+}
+
+function axisFmt(period) {
+  const f = { h: fr({ hour: "2-digit", minute: "2-digit" }), j: fr({ hour: "2-digit", minute: "2-digit" }),
+              s: fr({ weekday: "short", day: "numeric" }), m: fr({ day: "numeric", month: "short" }), a: fr({ month: "short" }) }[period];
+  return (u, splits) => splits.map(s => f.format(new Date(s * 1000)));
+}
+
+function setCards(idx) {
+  const { x, shown, cols } = cur, box = document.getElementById("cards"), when = document.getElementById("when");
+  when.textContent = idx == null ? (x.length ? "dernier point" : "") : fr({ weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(x[idx] * 1000));
+  box.replaceChildren(...shown.map((b, i) => {
+    const col = cols[i];
+    let v = idx == null ? null : col[idx];
+    if (idx == null) for (let k = col.length - 1; k >= 0; k--) if (col[k] != null) { v = col[k]; break; }
+    const el = document.createElement("div"); el.className = "card stat";
+    const head = document.createElement("div"); head.className = "head";
+    const dot = document.createElement("span"); dot.className = "dot"; dot.style.background = colorOf(b.id);
+    const strat = document.createElement("small"); strat.textContent = b.strategy;
+    head.append(dot, b.label, strat); // b.label en nœud texte : pas d'injection HTML
+    const val = document.createElement("div");
+    val.className = "val " + (v == null || Math.abs(v) < 0.005 ? "" : v > 0 ? "pos" : "neg");
+    val.textContent = fmtPnl(v);
+    el.append(head, val);
+    return el;
+  }));
+}
+
+function draw(d, start, end, emptyMsg) {
+  const el = document.getElementById("chart");
+  plot?.destroy(); plot = null; el.replaceChildren();
+  cur = d; setCards(null);
+  if (!d.x.length) { const e = document.createElement("div"); e.className = "empty"; e.textContent = emptyMsg; el.append(e); return; }
+  const grid = { stroke: "#2e2e2b", width: 1 }, tick = { stroke: "#2e2e2b", size: 4 };
+  plot = new uPlot({
+    width: el.clientWidth, height: 420, legend: { show: false },
+    cursor: { points: { size: 9, width: 2, stroke: (u, i) => colorOf(cur.shown[i - 1]?.id), fill: "#1a1a19" } },
+    scales: { x: { time: true, range: () => [+start / 1000, +end / 1000] } },
+    axes: [
+      { stroke: "#8b8a82", grid, ticks: tick, values: axisFmt(state.period), font: "12px system-ui" },
+      { stroke: "#8b8a82", grid, ticks: { show: false }, size: 64, font: "12px system-ui", values: (u, v) => v.map(n => (n < 0 ? "−" : "") + Math.abs(n).toFixed(1) + " $") },
+    ],
+    series: [{}, ...d.shown.map(b => ({ label: b.label, stroke: colorOf(b.id), width: 2, spanGaps: true, points: { show: false } }))],
+    hooks: {
+      // Ligne de zéro plus marquée que la grille : repère de gain/perte.
+      draw: [u => { const y = u.valToPos(0, "y", true); if (y < u.bbox.top || y > u.bbox.top + u.bbox.height) return;
+        const c = u.ctx; c.save(); c.strokeStyle = "#8b8a82"; c.setLineDash([4, 4]); c.lineWidth = 1; c.beginPath();
+        c.moveTo(u.bbox.left, y); c.lineTo(u.bbox.left + u.bbox.width, y); c.stroke(); c.restore(); }],
+      setCursor: [u => setCards(u.cursor.idx ?? null)],
+    },
+  }, [d.x, ...d.cols], el);
+}
+
+(async () => {
+  meta = await (await fetch("/api/meta")).json();
+  state.bots = new Set(meta.map(m => m.id));
+  const sel = document.getElementById("period");
+  sel.innerHTML = Object.entries(PERIODS).map(([k, l]) => `<option value="${k}">${l}</option>`).join("");
+  sel.value = state.period;
+  sel.onchange = () => { state.period = sel.value; renderDateInput(); refresh(); };
+  ddStrat = Dropdown(document.getElementById("ddStrat"), "Stratégie");
+  ddBots = Dropdown(document.getElementById("ddBots"), "Bots");
+  const step = n => { state.anchor = addPeriod(state.period, floorTo(state.period, state.anchor), n); renderDateInput(); refresh(); };
+  document.getElementById("prev").onclick = () => step(-1);
+  document.getElementById("next").onclick = () => step(1);
+  document.getElementById("now").onclick = () => { state.anchor = new Date(); renderDateInput(); refresh(); };
+  renderFilters(); renderDateInput(); refresh();
+  new ResizeObserver(() => plot && plot.setSize({ width: document.getElementById("chart").clientWidth, height: 420 })).observe(document.getElementById("chart"));
+})();
+</script>
+</body>
+</html>
