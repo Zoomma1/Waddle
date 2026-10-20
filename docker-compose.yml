@@ -15,3 +15,21 @@ services:
       - ./config:/app/config
       - ./data:/app/data
       - ./logs:/app/logs
+
+  # Dashboard lecture seule, en loopback : exposé uniquement via le proxy host NPM waddle.homelab.local (NPM est en network_mode host).
+  waddle-dashboard:
+    image: waddle-fleet
+    container_name: waddle-dashboard
+    restart: unless-stopped
+    network_mode: host
+    entrypoint: ["uv", "run", "scripts/dashboard.py"]
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DASH_BIND=127.0.0.1
+      - DASH_ALLOWED_HOSTS=waddle.homelab.local,localhost,127.0.0.1
+    volumes:
+      - ./config:/app/config:ro
+      - ./scripts:/app/scripts:ro
+      - ./data:/app/data
