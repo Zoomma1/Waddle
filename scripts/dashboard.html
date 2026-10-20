@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Waddle fleet</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%F0%9F%A6%86%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://unpkg.com/uplot@1.6.31/dist/uPlot.min.css" integrity="sha384-IfV0B7MIOYuO95kO9G5ySKPz/85zqFNOAs8iy4tkK5zd9izhJAB8b7lHrwYqqmYE" crossorigin="anonymous">
 <style>
   :root {
@@ -18,12 +19,15 @@
       radial-gradient(1400px 800px at 50% 115%, #20163a 0%, transparent 70%), var(--bg); background-attachment: fixed; }
   .wrap { max-width: 1280px; margin: 0 auto; padding: 24px 20px 40px; }
   header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px; }
-  header h1 { font-size: 22px; font-weight: 700; margin: 0; letter-spacing: -.02em; background: linear-gradient(90deg, #fff 30%, #b9a7ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  header h1 { font-size: 22px; font-weight: 700; margin: 0; letter-spacing: -.02em; }
+  header .grad { background: linear-gradient(90deg, #fff 30%, #b9a7ff); -webkit-background-clip: text; background-clip: text; color: transparent; } /* dégradé sur le texte seul : il blanchissait l'emoji */
   .card { backdrop-filter: blur(6px); }
   .toolbar { position: relative; z-index: 30; } /* sinon les dropdowns passent sous les cartes suivantes (backdrop-filter = contexte d'empilement) */
   .toolbar, .chartcard { animation: rise .35s ease both; } /* blocs fixes seulement : les cartes sont reconstruites à chaque refresh */
   @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
+  .note { color: var(--muted); font-size: 12px; margin: -4px 0 8px; }
+  .note:empty { display: none; }
   .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-bottom: 14px; }
   .kpi { padding: 14px 16px; display: flex; flex-direction: column; gap: 3px; }
   .kpi .k { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); display: flex; align-items: center; gap: 7px; }
@@ -85,7 +89,7 @@
 </head>
 <body>
 <div class="wrap">
-  <header><h1>🦆 Waddle fleet</h1><span class="sub">PnL cumulé par bot · paper trading</span></header>
+  <header><h1><span class="logo">🦆</span> <span class="grad">Waddle fleet</span></h1><span class="sub">PnL cumulé par bot · paper trading</span></header>
 
   <div class="card toolbar">
     <div class="field"><span class="lbl">Période</span>
@@ -99,6 +103,9 @@
         <button class="ctl ghost" id="now">Maintenant</button>
       </div>
     </div>
+    <div class="field"><span class="lbl">Vue</span>
+      <select id="view"><option value="bots">Bots</option><option value="strat">Stratégies</option></select>
+    </div>
     <div class="field" id="ddStrat"></div>
     <div class="field" id="ddBots"></div>
   </div>
@@ -107,6 +114,7 @@
   <div class="kpis" id="kpis"></div>
   <div class="card chartcard">
     <div class="charthead"><span class="t" id="rangeLabel"></span><span class="when" id="when"></span></div>
+    <div class="note" id="note"></div>
     <div id="chart"></div>
   </div>
   <div class="cards" id="cards"></div>
@@ -122,11 +130,14 @@ const BOT_COLOR = { C1: "#3987e5", C2: "#d95926", C3: "#199e70", C4: "#c98500", 
 const FALLBACK = ["#9085e9", "#e66767", "#008300"];
 const pad = n => String(n).padStart(2, "0");
 const colorOf = (id, i) => BOT_COLOR[id] || FALLBACK[i % FALLBACK.length];
+// Vue stratégies : une couleur par stratégie (retune = magenta, comme son seul bot R).
+const STRAT_COLOR = { "sans retune": "#3987e5", "retune": "#d55181" };
+const colOf = b => b.color || BOT_COLOR[b.id] || FALLBACK[Math.max(0, meta.findIndex(m => m.id === b.id)) % FALLBACK.length];
 const fr = (o) => new Intl.DateTimeFormat("fr-FR", o);
 const fmtPnl = v => v == null ? "—" : (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2) + " $";
 
-let state = { period: "j", anchor: new Date(), bots: new Set(), live: true, sel: null };
-let meta = [], plot = null, cur = { x: [], shown: [], cols: [] }, reqSeq = 0;
+let state = { period: "j", anchor: new Date(), bots: new Set(), live: true, sel: null, view: "bots" };
+let lastDraw = null, meta = [], plot = null, cur = { x: [], shown: [], cols: [], raw: { x: [], shown: [], cols: [] } }, reqSeq = 0;
 
 // ---- calendrier (heure locale) ----
 function floorTo(period, d) {
@@ -207,7 +218,7 @@ function summarize(n, total, names) {
 function renderFilters() {
   const bots = meta.filter(m => state.bots.has(m.id));
   ddBots.render(
-    meta.map(m => ({ key: m.id, label: m.label, color: colorOf(m.id), checked: state.bots.has(m.id), hint: m.strategy })),
+    meta.map(m => ({ key: m.id, label: m.label, color: colOf(m), checked: state.bots.has(m.id), hint: m.strategy })),
     summarize(bots.length, meta.length, bots.map(b => b.id)),
     id => { state.bots.has(id) ? state.bots.delete(id) : state.bots.add(id); renderFilters(); refresh(); });
   // L'état d'une stratégie est dérivé de ses bots : plus de double source de vérité.
@@ -285,7 +296,7 @@ function spark(col, color) {
 
 // Cartes construites une fois par rendu ; le survol ne met à jour que les valeurs.
 // Courbe sélectionnée : les autres sont atténuées, elle est épaissie (les courbes identiques se masquent sinon).
-const strokeFor = id => state.sel == null || state.sel === id ? colorOf(id) : colorOf(id) + "26";
+const strokeFor = b => state.sel == null || state.sel === b.id ? colOf(b) : colOf(b) + "26";
 function applySel() {
   document.querySelectorAll(".stat").forEach(el => el.classList.toggle("sel", el.dataset.id === state.sel));
   if (!plot) return;
@@ -299,19 +310,19 @@ function buildCards() {
   cur.valEls = [];
   if (!shown.some(b => b.id === state.sel)) state.sel = null;
   box.replaceChildren(...shown.map((b, i) => {
-    const el = document.createElement("div"); el.className = "card stat"; el.style.setProperty("--c", colorOf(b.id));
+    const el = document.createElement("div"); el.className = "card stat"; el.style.setProperty("--c", colOf(b));
     el.dataset.id = b.id; el.onclick = () => toggleSel(b.id);
     if (state.sel === b.id) el.classList.add("sel");
     const head = document.createElement("div"); head.className = "head";
-    const dot = document.createElement("span"); dot.className = "dot"; dot.style.background = colorOf(b.id);
+    const dot = document.createElement("span"); dot.className = "dot"; dot.style.background = colOf(b);
     const strat = document.createElement("small"); strat.textContent = b.strategy;
     head.append(dot, b.label, strat); // b.label en nœud texte : pas d'injection HTML
     const val = document.createElement("div"); val.className = "val";
     cur.valEls.push(val);
     el.append(head, val);
     const twin = shown.findIndex((o, j) => j < i && sameCurve(cols[j], cols[i]));
-    if (twin >= 0) { const bd = document.createElement("span"); bd.className = "badge"; bd.textContent = "courbe identique à " + shown[twin].id; el.append(bd); }
-    el.append(spark(cols[i], colorOf(b.id)));
+    if (twin >= 0) { const bd = document.createElement("span"); bd.className = "badge"; bd.textContent = "courbe identique à " + (shown[twin].name || shown[twin].id); el.append(bd); }
+    el.append(spark(cols[i], colOf(b)));
     return el;
   }));
 }
@@ -333,7 +344,7 @@ function ageText(ms) {
   return fr({ day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(Date.now() - ms));
 }
 function updateKpis() {
-  const { x, shown, cols } = cur, box = document.getElementById("kpis");
+  const { x, shown, cols } = cur.raw, box = document.getElementById("kpis");
   box.replaceChildren();
   if (!shown.length) return;
   // Un bot sans donnée dans la fenêtre ne compte pas (sinon il fausse total/meilleur/pire avec un 0 inventé).
@@ -373,22 +384,48 @@ function splitsFor(period) {
   };
 }
 
+// Vue stratégies : meilleur bot (PnL final de la fenêtre) en plein, moyenne des bots en pointillé.
+function strategyView(raw) {
+  const out = { x: raw.x, lastTs: raw.lastTs, shown: [], cols: [], raw };
+  const groups = new Map();
+  raw.shown.forEach((b, i) => {
+    if (!groups.has(b.strategy)) groups.set(b.strategy, []);
+    groups.get(b.strategy).push({ b, col: raw.cols[i], v: lastOf(raw.cols[i]) });
+  });
+  for (const [strat, items] of groups) {
+    const ok = items.filter(r => r.v != null);
+    if (!ok.length) continue;
+    const best = ok.reduce((a, r) => r.v > a.v ? r : a), color = STRAT_COLOR[strat] || FALLBACK[[...groups.keys()].indexOf(strat) % FALLBACK.length];
+    out.shown.push({ id: `S:${strat}:best`, label: strat, name: `${strat} (meilleur)`, strategy: `meilleur · ${best.b.id}`, color });
+    out.cols.push(best.col);
+    if (ok.length > 1) { // avec un seul bot la moyenne serait un doublon du trait plein
+      out.shown.push({ id: `S:${strat}:mean`, label: strat, name: `${strat} (moyenne)`, strategy: `moyenne · ${ok.length} bots`, color, dashed: true });
+      out.cols.push(raw.x.map((_, k) => { const vs = ok.map(r => r.col[k]).filter(v => v != null); return vs.length === ok.length ? vs.reduce((a, c) => a + c, 0) / vs.length : null; })); // null si un bot manque : sinon la moyenne saute quand il apparaît
+    }
+  }
+  return out;
+}
+
 function draw(d, start, end, emptyMsg) {
+  lastDraw = [d, start, end, emptyMsg];
   const el = document.getElementById("chart");
   plot?.destroy(); plot = null; el.replaceChildren();
-  cur = d; buildCards(); updateKpis(); setCards(null);
-  if (!d.x.length) { const e = document.createElement("div"); e.className = "empty"; e.textContent = emptyMsg; el.append(e); return; }
+  cur = state.view === "strat" ? strategyView(d) : { ...d, raw: d };
+  document.getElementById("note").textContent = state.view === "strat" && d.x.length
+    ? "Meilleur bot choisi sur la fenêtre affichée (PnL final) : avantagé quand une stratégie a plus de bots. La moyenne en pointillé compare à nombre de bots égal." : "";
+  buildCards(); updateKpis(); setCards(null);
+  if (!cur.x.length) { const e = document.createElement("div"); e.className = "empty"; e.textContent = emptyMsg; el.append(e); return; }
   const grid = { stroke: "#2e2e2b", width: 1 }, tick = { stroke: "#2e2e2b", size: 4 };
   plot = new uPlot({
     width: el.clientWidth, height: 420, legend: { show: false },
     focus: { alpha: 0.3 }, // la série la plus proche du curseur ressort, les autres s'estompent
-    cursor: { focus: { prox: 40 }, points: { size: 9, width: 2, stroke: (u, i) => colorOf(cur.shown[i - 1]?.id), fill: "#1a1a19" } },
+    cursor: { focus: { prox: 40 }, points: { size: 9, width: 2, stroke: (u, i) => cur.shown[i - 1] ? colOf(cur.shown[i - 1]) : "#fff", fill: "#1a1a19" } },
     scales: { x: { time: true, range: () => [+start / 1000, +end / 1000] } },
     axes: [
       { stroke: "#8b8a82", grid, ticks: tick, values: axisFmt(state.period), font: "12px system-ui", ...(splitsFor(state.period) ? { splits: splitsFor(state.period) } : {}) },
       { stroke: "#8b8a82", grid, ticks: { show: false }, size: 64, font: "12px system-ui", values: (u, v) => v.map(n => (n < 0 ? "−" : "") + Math.abs(n).toFixed(1) + " $") },
     ],
-    series: [{}, ...d.shown.map(b => ({ label: b.label, stroke: () => strokeFor(b.id), width: state.sel === b.id ? 3.5 : 2, spanGaps: true, points: { show: false } }))],
+    series: [{}, ...cur.shown.map(b => ({ label: b.label, stroke: () => strokeFor(b), dash: b.dashed ? [6, 5] : undefined, width: state.sel === b.id ? 3.5 : 2, spanGaps: true, points: { show: false } }))],
     hooks: {
       // Ligne de zéro plus marquée que la grille : repère de gain/perte.
       draw: [u => { const y = u.valToPos(0, "y", true); if (y < u.bbox.top || y > u.bbox.top + u.bbox.height) return;
@@ -396,7 +433,7 @@ function draw(d, start, end, emptyMsg) {
         c.moveTo(u.bbox.left, y); c.lineTo(u.bbox.left + u.bbox.width, y); c.stroke(); c.restore(); }],
       setCursor: [u => setCards(u.cursor.idx ?? null)],
     },
-  }, [d.x, ...d.cols], el);
+  }, [cur.x, ...cur.cols], el);
 }
 
 (async () => {
@@ -408,6 +445,8 @@ function draw(d, start, end, emptyMsg) {
   if (p0 in PERIODS) state.period = p0;
   sel.value = state.period;
   sel.onchange = () => { state.period = sel.value; renderDateInput(); refresh(); };
+  const view = document.getElementById("view");
+  view.onchange = () => { state.view = view.value; lastDraw ? draw(...lastDraw) : refresh(); }; // simple transformation des données déjà chargées
   ddStrat = Dropdown(document.getElementById("ddStrat"), "Stratégie");
   ddBots = Dropdown(document.getElementById("ddBots"), "Bots");
   const step = n => { state.anchor = addPeriod(state.period, floorTo(state.period, state.anchor), n); state.live = false; renderDateInput(); refresh(); };
