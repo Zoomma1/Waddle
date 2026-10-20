@@ -13,10 +13,26 @@
     --accent: #3987e5; --good: #0ca30c; --bad: #ec835a;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  body { margin: 0; min-height: 100vh; color: var(--text); font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+    background: radial-gradient(1500px 1000px at 5% -10%, #2d2347 0%, transparent 70%), radial-gradient(1300px 900px at 100% 5%, #0f2d45 0%, transparent 68%),
+      radial-gradient(1400px 800px at 50% 115%, #20163a 0%, transparent 70%), var(--bg); background-attachment: fixed; }
   .wrap { max-width: 1280px; margin: 0 auto; padding: 24px 20px 40px; }
   header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 18px; }
-  header h1 { font-size: 20px; font-weight: 650; margin: 0; letter-spacing: -.01em; }
+  header h1 { font-size: 22px; font-weight: 700; margin: 0; letter-spacing: -.02em; background: linear-gradient(90deg, #fff 30%, #b9a7ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .card { backdrop-filter: blur(6px); }
+  .toolbar { position: relative; z-index: 30; } /* sinon les dropdowns passent sous les cartes suivantes (backdrop-filter = contexte d'empilement) */
+  .toolbar, .chartcard { animation: rise .35s ease both; } /* blocs fixes seulement : les cartes sont reconstruites à chaque refresh */
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .kpi { padding: 14px 16px; display: flex; flex-direction: column; gap: 3px; }
+  .kpi .k { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); display: flex; align-items: center; gap: 7px; }
+  .kpi .v { font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .kpi .v.pos { color: #5fd35f; } .kpi .v.neg { color: #f08a63; }
+  .kpi .s { color: var(--muted); font-size: 12px; }
+  .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--good); box-shadow: 0 0 0 0 #0ca30c99; animation: pulse 2s infinite; }
+  .pulse.stale { background: var(--bad); animation: none; }
+  @keyframes pulse { 70% { box-shadow: 0 0 0 7px #0ca30c00; } 100% { box-shadow: 0 0 0 0 #0ca30c00; } }
   header .sub { color: var(--muted); }
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
 
@@ -50,7 +66,13 @@
   .empty { height: 420px; display: grid; place-items: center; color: var(--muted); }
 
   .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-top: 12px; }
-  .stat { padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+  .stat { padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; position: relative; overflow: hidden; transition: transform .15s, border-color .15s; }
+  .stat { cursor: pointer; user-select: none; }
+  .stat:hover { transform: translateY(-2px); border-color: #4a4a45; }
+  .stat.sel { border-color: var(--c); box-shadow: 0 0 0 1px var(--c), 0 8px 24px -10px var(--c); }
+  .stat::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: var(--c); opacity: .9; }
+  .spark { width: 100%; height: 28px; margin-top: 4px; }
+  .badge { font-size: 11px; color: var(--text-2); background: #ffffff12; border-radius: 99px; padding: 1px 8px; width: fit-content; }
   .stat .head { display: flex; align-items: center; gap: 8px; color: var(--text-2); }
   .stat .head small { color: var(--muted); margin-left: auto; }
   .stat .val { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
@@ -82,6 +104,7 @@
   </div>
 
   <div id="msg"></div>
+  <div class="kpis" id="kpis"></div>
   <div class="card chartcard">
     <div class="charthead"><span class="t" id="rangeLabel"></span><span class="when" id="when"></span></div>
     <div id="chart"></div>
@@ -102,7 +125,7 @@ const colorOf = (id, i) => BOT_COLOR[id] || FALLBACK[i % FALLBACK.length];
 const fr = (o) => new Intl.DateTimeFormat("fr-FR", o);
 const fmtPnl = v => v == null ? "—" : (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2) + " $";
 
-let state = { period: "j", anchor: new Date(), bots: new Set() };
+let state = { period: "j", anchor: new Date(), bots: new Set(), live: true, sel: null };
 let meta = [], plot = null, cur = { x: [], shown: [], cols: [] }, reqSeq = 0;
 
 // ---- calendrier (heure locale) ----
@@ -205,7 +228,7 @@ function renderDateInput() {
   const p = state.period, a = state.anchor, box = document.getElementById("datein");
   const mk = (type, val, onchange, extra = {}) => {
     const i = Object.assign(document.createElement("input"), { type, value: val, ...extra });
-    i.onchange = () => { const d = onchange(i.value); if (d && !isNaN(d)) { state.anchor = d; renderDateInput(); refresh(); } };
+    i.onchange = () => { const d = onchange(i.value); if (d && !isNaN(d)) { state.anchor = d; state.live = false; renderDateInput(); refresh(); } };
     return i;
   };
   box.replaceChildren();
@@ -234,7 +257,7 @@ async function refresh() {
   const errs = Object.entries(data.errors || {}).map(([k, v]) => `${k}: ${v}`);
   msg.textContent = errs.length ? "Erreur DB — " + errs.join(" | ") : "";
   const shown = bots.filter(b => data.series[b.id]);
-  draw({ x: data.x, shown, cols: shown.map(b => data.series[b.id]) }, start, end, data.x.length ? "" : "Aucune donnée sur cette fenêtre.");
+  draw({ x: data.x, lastTs: data.last_ts, shown, cols: shown.map(b => data.series[b.id]) }, start, end, data.x.length ? "" : "Aucune donnée sur cette fenêtre.");
 }
 
 function axisFmt(period) {
@@ -243,41 +266,129 @@ function axisFmt(period) {
   return (u, splits) => splits.map(s => f.format(new Date(s * 1000)));
 }
 
-function setCards(idx) {
-  const { x, shown, cols } = cur, box = document.getElementById("cards"), when = document.getElementById("when");
-  when.textContent = idx == null ? (x.length ? "dernier point" : "") : fr({ weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(x[idx] * 1000));
+const lastOf = col => { for (let k = col.length - 1; k >= 0; k--) if (col[k] != null) return col[k]; return null; };
+const sameCurve = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+const signCls = v => v == null || Math.abs(v) < 0.005 ? "" : v > 0 ? "pos" : "neg";
+
+function spark(col, color) {
+  const ns = "http://www.w3.org/2000/svg", svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", "0 0 100 28"); svg.setAttribute("preserveAspectRatio", "none"); svg.classList.add("spark");
+  const vals = col.filter(v => v != null), lo = Math.min(0, ...vals), span = (Math.max(0, ...vals) - lo) || 1, n = col.length;
+  const pts = [];
+  col.forEach((v, i) => { if (v != null) pts.push(`${(i / (n - 1 || 1) * 100).toFixed(1)},${(26 - (v - lo) / span * 24).toFixed(1)}`); });
+  const pl = document.createElementNS(ns, "polyline");
+  pl.setAttribute("points", pts.join(" ")); pl.setAttribute("fill", "none"); pl.setAttribute("stroke", color);
+  pl.setAttribute("stroke-width", "1.5"); pl.setAttribute("vector-effect", "non-scaling-stroke");
+  svg.append(pl);
+  return svg;
+}
+
+// Cartes construites une fois par rendu ; le survol ne met à jour que les valeurs.
+// Courbe sélectionnée : les autres sont atténuées, elle est épaissie (les courbes identiques se masquent sinon).
+const strokeFor = id => state.sel == null || state.sel === id ? colorOf(id) : colorOf(id) + "26";
+function applySel() {
+  document.querySelectorAll(".stat").forEach(el => el.classList.toggle("sel", el.dataset.id === state.sel));
+  if (!plot) return;
+  cur.shown.forEach((b, i) => { plot.series[i + 1].width = state.sel === b.id ? 3.5 : 2; });
+  plot.redraw();
+}
+function toggleSel(id) { state.sel = state.sel === id ? null : id; applySel(); }
+
+function buildCards() {
+  const { shown, cols } = cur, box = document.getElementById("cards");
+  cur.valEls = [];
+  if (!shown.some(b => b.id === state.sel)) state.sel = null;
   box.replaceChildren(...shown.map((b, i) => {
-    const col = cols[i];
-    let v = idx == null ? null : col[idx];
-    if (idx == null) for (let k = col.length - 1; k >= 0; k--) if (col[k] != null) { v = col[k]; break; }
-    const el = document.createElement("div"); el.className = "card stat";
+    const el = document.createElement("div"); el.className = "card stat"; el.style.setProperty("--c", colorOf(b.id));
+    el.dataset.id = b.id; el.onclick = () => toggleSel(b.id);
+    if (state.sel === b.id) el.classList.add("sel");
     const head = document.createElement("div"); head.className = "head";
     const dot = document.createElement("span"); dot.className = "dot"; dot.style.background = colorOf(b.id);
     const strat = document.createElement("small"); strat.textContent = b.strategy;
     head.append(dot, b.label, strat); // b.label en nœud texte : pas d'injection HTML
-    const val = document.createElement("div");
-    val.className = "val " + (v == null || Math.abs(v) < 0.005 ? "" : v > 0 ? "pos" : "neg");
-    val.textContent = fmtPnl(v);
+    const val = document.createElement("div"); val.className = "val";
+    cur.valEls.push(val);
     el.append(head, val);
+    const twin = shown.findIndex((o, j) => j < i && sameCurve(cols[j], cols[i]));
+    if (twin >= 0) { const bd = document.createElement("span"); bd.className = "badge"; bd.textContent = "courbe identique à " + shown[twin].id; el.append(bd); }
+    el.append(spark(cols[i], colorOf(b.id)));
     return el;
   }));
+}
+
+function tile(k, v, s, cls = "", live = null) {
+  const el = document.createElement("div"); el.className = "card kpi";
+  const kk = document.createElement("div"); kk.className = "k";
+  if (live !== null) { const p = document.createElement("span"); p.className = "pulse" + (live ? "" : " stale"); kk.append(p); }
+  kk.append(k);
+  const vv = document.createElement("div"); vv.className = "v " + cls; vv.textContent = v;
+  const ss = document.createElement("div"); ss.className = "s"; ss.textContent = s;
+  el.append(kk, vv, ss);
+  return el;
+}
+function ageText(ms) {
+  const m = Math.round(ms / 60000);
+  if (m < 60) return `il y a ${Math.max(m, 0)} min`;
+  if (m < 2880) return `il y a ${Math.round(m / 60)} h`;
+  return fr({ day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(Date.now() - ms));
+}
+function updateKpis() {
+  const { x, shown, cols } = cur, box = document.getElementById("kpis");
+  box.replaceChildren();
+  if (!shown.length) return;
+  // Un bot sans donnée dans la fenêtre ne compte pas (sinon il fausse total/meilleur/pire avec un 0 inventé).
+  const rows = shown.map((b, i) => ({ b, v: lastOf(cols[i]) })).filter(r => r.v != null);
+  if (!rows.length) return;
+  const total = rows.reduce((a, r) => a + r.v, 0);
+  const hi = rows.reduce((a, r) => r.v > a.v ? r : a), lo = rows.reduce((a, r) => r.v < a.v ? r : a);
+  const age = Date.now() - (cur.lastTs || x[x.length - 1] * 1000);
+  box.append(
+    tile("PnL flotte", fmtPnl(total), `${rows.length} bot${rows.length > 1 ? "s" : ""} avec données`, signCls(total)),
+    tile("Meilleur", fmtPnl(hi.v), hi.b.label, signCls(hi.v)),
+    tile("Moins bon", fmtPnl(lo.v), lo.b.label, signCls(lo.v)),
+    tile("Dernier point", ageText(age), state.live ? "bot le plus en retard · rafraîchi toutes les 60 s" : "bot le plus en retard · vue figée", "", age < 10 * 60000));
+}
+
+function setCards(idx) {
+  const { x, cols, valEls } = cur, when = document.getElementById("when");
+  when.textContent = idx == null ? (x.length ? "dernier point" : "") : fr({ weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(x[idx] * 1000));
+  valEls.forEach((el, i) => {
+    const v = idx == null ? lastOf(cols[i]) : cols[i][idx];
+    el.className = "val " + signCls(v);
+    el.textContent = fmtPnl(v);
+  });
+}
+
+// Ticks calés sur minuit (semaine/mois) ou le 1er du mois (année) : évite les libellés répétés.
+function splitsFor(period) {
+  if (!["s", "m", "a"].includes(period)) return null;
+  return (u, ax, min, max) => {
+    const out = [], d = new Date(min * 1000);
+    d.setHours(0, 0, 0, 0); if (period === "a") d.setDate(1);
+    while (d.getTime() / 1000 <= max + 1) {
+      if (d.getTime() / 1000 >= min - 1) out.push(d.getTime() / 1000);
+      period === "a" ? d.setMonth(d.getMonth() + 1) : d.setDate(d.getDate() + (period === "m" ? 3 : 1));
+    }
+    return out;
+  };
 }
 
 function draw(d, start, end, emptyMsg) {
   const el = document.getElementById("chart");
   plot?.destroy(); plot = null; el.replaceChildren();
-  cur = d; setCards(null);
+  cur = d; buildCards(); updateKpis(); setCards(null);
   if (!d.x.length) { const e = document.createElement("div"); e.className = "empty"; e.textContent = emptyMsg; el.append(e); return; }
   const grid = { stroke: "#2e2e2b", width: 1 }, tick = { stroke: "#2e2e2b", size: 4 };
   plot = new uPlot({
     width: el.clientWidth, height: 420, legend: { show: false },
-    cursor: { points: { size: 9, width: 2, stroke: (u, i) => colorOf(cur.shown[i - 1]?.id), fill: "#1a1a19" } },
+    focus: { alpha: 0.3 }, // la série la plus proche du curseur ressort, les autres s'estompent
+    cursor: { focus: { prox: 40 }, points: { size: 9, width: 2, stroke: (u, i) => colorOf(cur.shown[i - 1]?.id), fill: "#1a1a19" } },
     scales: { x: { time: true, range: () => [+start / 1000, +end / 1000] } },
     axes: [
-      { stroke: "#8b8a82", grid, ticks: tick, values: axisFmt(state.period), font: "12px system-ui" },
+      { stroke: "#8b8a82", grid, ticks: tick, values: axisFmt(state.period), font: "12px system-ui", ...(splitsFor(state.period) ? { splits: splitsFor(state.period) } : {}) },
       { stroke: "#8b8a82", grid, ticks: { show: false }, size: 64, font: "12px system-ui", values: (u, v) => v.map(n => (n < 0 ? "−" : "") + Math.abs(n).toFixed(1) + " $") },
     ],
-    series: [{}, ...d.shown.map(b => ({ label: b.label, stroke: colorOf(b.id), width: 2, spanGaps: true, points: { show: false } }))],
+    series: [{}, ...d.shown.map(b => ({ label: b.label, stroke: () => strokeFor(b.id), width: state.sel === b.id ? 3.5 : 2, spanGaps: true, points: { show: false } }))],
     hooks: {
       // Ligne de zéro plus marquée que la grille : repère de gain/perte.
       draw: [u => { const y = u.valToPos(0, "y", true); if (y < u.bbox.top || y > u.bbox.top + u.bbox.height) return;
@@ -293,14 +404,25 @@ function draw(d, start, end, emptyMsg) {
   state.bots = new Set(meta.map(m => m.id));
   const sel = document.getElementById("period");
   sel.innerHTML = Object.entries(PERIODS).map(([k, l]) => `<option value="${k}">${l}</option>`).join("");
+  const p0 = new URLSearchParams(location.search).get("p"); // lien direct : ?p=s
+  if (p0 in PERIODS) state.period = p0;
   sel.value = state.period;
   sel.onchange = () => { state.period = sel.value; renderDateInput(); refresh(); };
   ddStrat = Dropdown(document.getElementById("ddStrat"), "Stratégie");
   ddBots = Dropdown(document.getElementById("ddBots"), "Bots");
-  const step = n => { state.anchor = addPeriod(state.period, floorTo(state.period, state.anchor), n); renderDateInput(); refresh(); };
+  const step = n => { state.anchor = addPeriod(state.period, floorTo(state.period, state.anchor), n); state.live = false; renderDateInput(); refresh(); };
   document.getElementById("prev").onclick = () => step(-1);
   document.getElementById("next").onclick = () => step(1);
-  document.getElementById("now").onclick = () => { state.anchor = new Date(); renderDateInput(); refresh(); };
+  document.getElementById("now").onclick = () => { state.anchor = new Date(); state.live = true; renderDateInput(); refresh(); };
+  // Auto-refresh uniquement tant qu'on regarde la période en cours (pas en navigation dans le passé).
+  setInterval(() => {
+    // Pas de refresh pendant un survol : la reconstruction du graphe ferait perdre le curseur.
+    if (!state.live || document.hidden || document.querySelector(".ddpanel:not([hidden])") || plot?.cursor.idx != null) return;
+    const before = +floorTo(state.period, state.anchor);
+    state.anchor = new Date();
+    if (+floorTo(state.period, state.anchor) !== before) renderDateInput();
+    refresh();
+  }, 60000);
   renderFilters(); renderDateInput(); refresh();
   new ResizeObserver(() => plot && plot.setSize({ width: document.getElementById("chart").clientWidth, height: 420 })).observe(document.getElementById("chart"));
 })();
