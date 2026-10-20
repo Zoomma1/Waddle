@@ -16,7 +16,7 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
 
-  # Dashboard lecture seule, joignable uniquement sur l'IP Tailscale du N100 (DASH_BIND ci-dessous, prime sur .env).
+  # Dashboard lecture seule, en loopback : exposé uniquement via le proxy host NPM waddle.homelab.local (NPM est en network_mode host).
   waddle-dashboard:
     image: waddle-fleet
     container_name: waddle-dashboard
@@ -27,7 +27,8 @@ services:
       - .env
     environment:
       - PYTHONUNBUFFERED=1
-      - DASH_BIND=100.75.56.107
+      - DASH_BIND=127.0.0.1
+      - DASH_ALLOWED_HOSTS=waddle.homelab.local,localhost,127.0.0.1
     volumes:
       - ./config:/app/config:ro
       - ./scripts:/app/scripts:ro

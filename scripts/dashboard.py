@@ -1,6 +1,7 @@
 """Mini dashboard fleet Waddle : courbes de PnL des 5 bots, lecture seule des DB.
 
-Usage : DASH_BIND=<ip tailscale> uv run scripts/dashboard.py
+Usage : DASH_BIND=127.0.0.1 DASH_ALLOWED_HOSTS=<nom1,nom2> uv run scripts/dashboard.py
+Exposé via un proxy host NPM (ex. waddle.homelab.local) ; tout Host hors DASH_ALLOWED_HOSTS reçoit une 403.
 """
 from __future__ import annotations
 
@@ -14,6 +15,8 @@ from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).resolve().parent.parent
 PAGE = (Path(__file__).resolve().parent / "dashboard.html").read_bytes()
+# Noms sous lesquels on accepte d'être appelé (hors port), séparés par des virgules.
+ALLOWED_HOSTS = {h.strip().lower() for h in os.environ.get("DASH_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h.strip()}
 
 # Même source de vérité que telegram_push.py : 4 combos fixes + le bot retuné.
 BOTS = [
@@ -41,6 +44,7 @@ def meta() -> list[dict]:
 def series(bot_ids: list[str], start_ms: int, end_ms: int, bucket_ms: int) -> dict:
     by_bot: dict[str, dict[int, float]] = {}
     errors: dict[str, str] = {}
+    lasts: list[int] = []
     for bot in BOTS:
         if bot["id"] not in bot_ids:
             continue
@@ -58,12 +62,16 @@ def series(bot_ids: list[str], start_ms: int, end_ms: int, bucket_ms: int) -> di
                     (start_ms, end_ms, bucket_ms),
                 ).fetchall()
         except sqlite3.Error as e:  # DB corrompue ou absente : on isole le bot, pas de 500 global
-            errors[bot["id"]] = str(e)
+            print(f"[dashboard] {bot['id']}: {e}", flush=True)  # détail (chemins) en logs, pas dans la réponse
+            errors[bot["id"]] = "DB illisible (voir logs)"
             continue
         if first:
             by_bot[bot["id"]] = {ts // bucket_ms * bucket_ms: nav - first[0] for ts, nav in rows}
+            lasts.append(rows[-1][0])
     xs = sorted({t for d in by_bot.values() for t in d})
     return {
+        # Dernier snapshot du bot le plus en retard : un bot planté doit faire virer la fraîcheur (x = début de bucket, pas fiable).
+        "last_ts": min(lasts) if lasts else 0,
         "x": [t // 1000 for t in xs],
         "series": {b: [d.get(t) for t in xs] for b, d in by_bot.items()},
         "errors": errors,
@@ -79,6 +87,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:
+        # Anti DNS-rebinding : un site tiers résolu vers notre IP enverrait son propre Host.
+        if self.headers.get("Host", "").rsplit(":", 1)[0].lower() not in ALLOWED_HOSTS:
+            self._send(b"forbidden", "text/plain", 403)
+            return
         url = urlparse(self.path)
         if url.path == "/":
             self._send(PAGE, "text/html; charset=utf-8")
@@ -105,7 +117,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    # Défaut loopback : on n'expose rien tant que DASH_BIND (IP Tailscale du N100) n'est pas posé.
+    # Défaut loopback : seul un proxy local (NPM, network_mode host) atteint le serveur.
     host = os.environ.get("DASH_BIND", "127.0.0.1")
     port = int(os.environ.get("DASH_PORT", "8765"))
     print(f"[dashboard] http://{host}:{port}", flush=True)
