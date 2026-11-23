@@ -17,7 +17,7 @@ def find_gaps(
         raise ValueError("index must be tz-aware")
     step = pd.Timedelta(freq)
     step_ns = step.value
-    ns = index.asi8
+    ns = index.as_unit("ns").asi8
     if any(int(v) % step_ns for v in ns):
         raise ValueError(f"index is not aligned on the {freq} grid")
     if any(int(b) <= int(a) for a, b in zip(ns[:-1], ns[1:])):
