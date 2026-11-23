@@ -100,3 +100,65 @@ def test_parent_directory_of_db_path_is_created(tmp_path):
 
     assert _count(db, SYMBOL) == 0
     assert parent.is_dir()
+
+
+def _count_bybit(db, symbol):
+    return storage.count_ohlcv_bybit(symbol, db_path=db)
+
+
+def test_bybit_count_is_zero_for_unknown_symbol_on_empty_db(tmp_path):
+    db = tmp_path / "waddle.db"
+
+    assert _count_bybit(db, SYMBOL) == 0
+
+
+def test_bybit_count_is_zero_for_unknown_symbol_on_non_empty_db(tmp_path):
+    db = tmp_path / "waddle.db"
+    storage.save_ohlcv_bybit(_bars(3), SYMBOL, db_path=db)
+
+    assert _count_bybit(db, OTHER) == 0
+
+
+def test_bybit_count_returns_number_of_saved_bars(tmp_path):
+    db = tmp_path / "waddle.db"
+    storage.save_ohlcv_bybit(_bars(5), SYMBOL, db_path=db)
+
+    assert _count_bybit(db, SYMBOL) == 5
+
+
+def test_bybit_rewriting_same_timestamps_does_not_change_count(tmp_path):
+    db = tmp_path / "waddle.db"
+    storage.save_ohlcv_bybit(_bars(4), SYMBOL, db_path=db)
+    # Même (symbol, timestamp), prix différents : upsert, pas d'ajout.
+    storage.save_ohlcv_bybit(_bars(4).assign(close=20.0), SYMBOL, db_path=db)
+
+    assert _count_bybit(db, SYMBOL) == 4
+
+
+def test_bybit_each_symbol_is_counted_separately(tmp_path):
+    db = tmp_path / "waddle.db"
+    storage.save_ohlcv_bybit(_bars(3), SYMBOL, db_path=db)
+    storage.save_ohlcv_bybit(_bars(5), OTHER, db_path=db)
+
+    assert _count_bybit(db, SYMBOL) == 3
+    assert _count_bybit(db, OTHER) == 5
+
+
+def test_bybit_count_ignores_binance_ohlcv_bars_of_same_symbol(tmp_path):
+    db = tmp_path / "waddle.db"
+    storage.save_ohlcv(_bars(4), SYMBOL, db_path=db)
+
+    assert _count_bybit(db, SYMBOL) == 0
+
+    storage.save_ohlcv_bybit(_bars(2), SYMBOL, db_path=db)
+
+    assert _count_bybit(db, SYMBOL) == 2
+
+
+def test_bybit_parent_directory_of_db_path_is_created(tmp_path):
+    parent = tmp_path / "data" / "nested"
+    db = parent / "waddle.db"
+    assert not parent.exists()
+
+    assert _count_bybit(db, SYMBOL) == 0
+    assert parent.is_dir()
