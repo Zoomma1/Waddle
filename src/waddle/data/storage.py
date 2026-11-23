@@ -181,3 +181,13 @@ def load_funding_rates(symbol: str, db_path: Path = DEFAULT_DB) -> pd.DataFrame:
     con.close()
     df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
     return df.set_index("timestamp")
+
+
+def count_funding_rates(symbol: str, db_path: Path = DEFAULT_DB) -> int:
+    """Return the number of stored funding rate settlements for a symbol."""
+    con = _connect(db_path)
+    (count,) = con.execute(
+        "SELECT COUNT(*) FROM funding_rates WHERE symbol = ?", (symbol,)
+    ).fetchone()
+    con.close()
+    return int(count)
