@@ -144,6 +144,16 @@ def load_ohlcv_bybit(symbol: str, db_path: Path = DEFAULT_DB) -> pd.DataFrame:
     return df.set_index("timestamp")
 
 
+def count_ohlcv_bybit(symbol: str, db_path: Path = DEFAULT_DB) -> int:
+    """Return the number of stored Bybit linear-perp bars for a symbol."""
+    con = _connect(db_path)
+    (count,) = con.execute(
+        "SELECT COUNT(*) FROM ohlcv_bybit WHERE symbol = ?", (symbol,)
+    ).fetchone()
+    con.close()
+    return int(count)
+
+
 def save_funding_rates(df: pd.DataFrame, symbol: str, db_path: Path = DEFAULT_DB) -> int:
     """Upsert a DataFrame of funding rate settlements for a symbol.
 
